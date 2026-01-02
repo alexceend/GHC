@@ -10,6 +10,7 @@ from pystray import Icon, Menu, MenuItem
 from PIL import Image, ImageDraw
 import sys
 import ctypes
+import logging
 
 
 # CONFIG
@@ -24,6 +25,12 @@ paused = False
 active = {}
 data = {}
 
+# LOGGING
+logging.basicConfig(
+    filename=os.path.join(APP_DIR, "debug.log"),
+    level=logging.ERROR,
+    format="%(asctime)s %(message)s"
+)
 
 # DEFAULT CSV
 if not os.path.exists(GAMES_CSV):
@@ -53,12 +60,15 @@ GAMES = load_games()
 # SAVE MUTEX
 
 def save_data_atomic(data, filename=DATA_FILE):
-    dir_name = os.path.dirname(filename) or "."
-    with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False) as tmp:
-        for name, seconds in data.items():
-            tmp.write(f"{name}:{seconds}\n")
-        temp_name = tmp.name
-    os.replace(temp_name, filename)  # atomic
+    try:
+        dir_name = os.path.dirname(filename) or "."
+        with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False) as tmp:
+            for name, seconds in data.items():
+                tmp.write(f"{name}:{seconds}\n")
+            temp_name = tmp.name
+        os.replace(temp_name, filename)  # atomic
+    except Exception as e:
+        logging.exception("Save failed: ", e)
 
 def load_data(filename=DATA_FILE):
     data = {}
@@ -87,20 +97,30 @@ def format_time(seconds):
 def tracker_loop():
     global active
     while True:
-        if not paused:
-            running = {p.name().lower() for p in psutil.process_iter()}
-            now = time.time()
+        try:
+            if not paused:
+                running = set()
+                for p in psutil.process_iter():
+                    try:
+                        running.add(p.name.lower())
+                    except:
+                        pass
+                        
+                now = time.time()
+                
+                for exe, name in GAMES.items():
+                    if exe in running:
+                        if exe not in active:
+                            active[exe] = now
+                    else:
+                        if exe in active:
+                            duration = now - active.pop(exe)
+                            data[name] = data.get(name, 0) + duration
+                            save_data_atomic(data)
+        except Exception as e:
+            logging.exception("Tracker error: ", e)
             
-            for exe, name in GAMES.items():
-                if exe in running:
-                    if exe not in active:
-                        active[exe] = now
-                else:
-                    if exe in active:
-                        duration = now - active.pop(exe)
-                        data[name] = data.get(name, 0) + duration
-                        save_data_atomic(data)
-
+            
         time.sleep(POLL_INTERVAL)
 
 
