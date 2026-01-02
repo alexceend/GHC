@@ -100,9 +100,9 @@ def tracker_loop():
         try:
             if not paused:
                 running = set()
-                for p in psutil.process_iter():
+                for p in psutil.process_iter(attrs=["name"]):
                     try:
-                        running.add(p.name.lower())
+                        running.add(p.info["name"].lower())
                     except:
                         pass
                         
